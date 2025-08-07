@@ -8,13 +8,18 @@ import random
 
 
 # 🔁 Funkce pro jedno vystoupení agenta
-def run_turn(agent, discussion_topic, round_history, full_history, agents_history):
+def run_turn(agent, discussion_topic, round_history, full_history, summary_history, agents_history):
+    
+    # because limited context lenght of models agents only remember last N rounds and summary from moderator
+    recent_rounds = full_history[-(5 * len(agents_history)):]
+    short_history = summary_history + recent_rounds
+
     response = agent["chain"].invoke({
         "role": agent["role"],
         "name": agent["name"],
         "topic": discussion_topic,
         "goal": agent["goal"],
-        "history": full_history
+        "history": short_history
     })
     message = AIMessage(content=response.content)
     round_history.append(message)
@@ -86,7 +91,7 @@ def main():
     discussion_topic = "Budoucnost umělé inteligence"
     init_prompt = f"Dnešní téma je: {discussion_topic}. Diskutujte."
     full_history = [HumanMessage(content=init_prompt)]
-    conversation_rounds = 3
+    conversation_rounds = 20
 
     for round_idx in range(conversation_rounds):
         print(f"\n🔁 Kolo {round_idx + 1} / {conversation_rounds}")
@@ -95,7 +100,7 @@ def main():
         random.shuffle(round_agents)
 
         for agent in round_agents:
-            run_turn(agent, discussion_topic, round_history, full_history, agents_history)
+            run_turn(agent, discussion_topic, round_history, full_history, summary_history[-1], agents_history)
 
         run_moderator(moderator_chain, round_idx, round_history, summary_history)
         plot_cosine_similarity_between_agents(agents_history, round_idx, embedding_model)
