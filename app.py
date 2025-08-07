@@ -1,145 +1,108 @@
+from metrics import plot_cosine_similarity_between_agents, plot_cosine_similarity_over_time_for_agent
+from reports import generate_markdown_report, convert_markdown_to_pdf
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
-from langchain.schema import HumanMessage, AIMessage
-from sklearn.metrics.pairwise import cosine_similarity
-import matplotlib.pyplot as plt
-import numpy as np
+from langchain.schema import HumanMessage, AIMessage, SystemMessage
+from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
 from dotenv import load_dotenv, find_dotenv
-
-# 🔐 Načtení API klíče
-load_dotenv(find_dotenv(), override=True)
-
-# Inicializace embedding modelu
-embedding_model = OpenAIEmbeddings()
-
-# ⚙️ Nastavení jednotlivých agentů a jejich rolí
-agent_configs = [
-    {
-        "name": "Alice",
-        "llm": ChatOpenAI(model="gpt-3.5-turbo", temperature=0.7),
-        "role": "Jsi technologický optimista. Zdůrazňuješ přínosy umělé inteligence a nesouhlasíš s přehnanými obavami.",
-    },
-    {
-        "name": "Bob",
-        "llm": ChatOpenAI(model="gpt-3.5-turbo", temperature=0.7),
-        "role": "Jsi etický skeptik. Poukazuješ na rizika a slabiny AI. Vyvracíš přehnaný optimismus.",
-    },
-    {
-        "name": "Eva",
-        "llm": ChatOpenAI(model="gpt-3.5-turbo", temperature=0.7),
-        "role": "Jsi akademický vyvažovač. Snažíš se obě předchozí názory zasadit do vědeckého kontextu a zpochybňuješ jejich argumenty.",
-    },
-]
-
-# 🧠 Moderátor – samostatný model (může být jiný)
-moderator = ChatOpenAI(model="gpt-3.5-turbo", temperature=0.7)
+import random
 
 
-# Uchování embedding historie pro každého agenta
-agent_embeddings_history = {agent["name"]: [] for agent in agent_configs}
-
-# Uchování podobností mezi koly
-agent_similarity_over_time = {agent["name"]: [] for agent in agent_configs}
-
-# 📌 Téma a historie
-init_prompt = "Dnešní téma je: Budoucnost umělé inteligence. Diskutujte."
-full_history = [HumanMessage(content=init_prompt)]
-summary_history = []
-
-# 🔄 Počet kol
-conversation_rounds = 10
-
-
-# 🗨️ Funkce pro jedno vystoupení agenta
-def run_turn(agent, round_history, full_history):
-    system_prompt = HumanMessage(
-        content=f"{agent['role']}\nDiskutuj k tématu a reaguj na předchozí příspěvky."
-    )
-    response = agent["llm"].invoke(round_history + [system_prompt])
-    #print(f"\n🧠 {agent['name']}: {response.content}")
+# 🔁 Funkce pro jedno vystoupení agenta
+def run_turn(agent, discussion_topic, round_history, full_history, agents_history):
+    response = agent["chain"].invoke({
+        "role": agent["role"],
+        "name": agent["name"],
+        "topic": discussion_topic,
+        "goal": agent["goal"],
+        "history": full_history
+    })
     message = AIMessage(content=response.content)
     round_history.append(message)
     full_history.append(message)
-
-     # Výpočet embeddingu a podobnosti s předchozím kolem
-    current_embedding = embedding_model.embed_documents([response.content])[0]
-    name = agent["name"]
-    history = agent_embeddings_history[name]
-
-    if history:
-        prev_embedding = history[-1]
-        sim = cosine_similarity([current_embedding], [prev_embedding])[0][0]
-        agent_similarity_over_time[name].append(sim)
-    else:
-        agent_similarity_over_time[name].append(1.0)  # první výskyt – podobnost se sebou samým
-
-    history.append(current_embedding)
+    agents_history[agent["name"]].append(response.content)
 
 
-# 🧾 Funkce pro shrnutí kola
-def run_moderator(moderator_llm, round_idx, round_history, summary_history):
-    summary_prompt = HumanMessage(
-        content=f"Jako moderátor shrň diskusi tohoto kola (kolo {round_idx + 1})."
-    )
-    response = moderator_llm.invoke(round_history + [summary_prompt])
+# ✍️ Funkce pro shrnutí kola moderátorem
+def run_moderator(moderator_chain, round_idx, round_history, summary_history):
+    response = moderator_chain.invoke({
+        "round_num": round_idx + 1,
+        "history": round_history
+    })
     summary = f"[Shrnutí kola {round_idx + 1}] {response.content}"
-    #print(f"\n✍️ Moderátor (shrnutí kola {round_idx + 1}): {response.content}")
     summary_history.append(AIMessage(content=summary))
 
 
-# Výpočet kosinové podobnosti mezi agentovými výstupy
-def plot_cosine_similarity_between_agents(agent_names, agent_outputs, round_idx):
-    # Získání embeddingů
-    embeddings = embedding_model.embed_documents(agent_outputs)
-
-    # Výpočet párových podobností
-    similarity_matrix = cosine_similarity(embeddings)
-
-    # Vykreslení heatmapy
-    plt.figure(figsize=(6, 5))
-    plt.imshow(similarity_matrix, cmap='viridis', interpolation='nearest')
-    plt.colorbar(label="Kosinová podobnost")
-    plt.xticks(ticks=np.arange(len(agent_names)), labels=agent_names)
-    plt.yticks(ticks=np.arange(len(agent_names)), labels=agent_names)
-    plt.title(f"Kosinová podobnost – Kolo {round_idx + 1}")
-    plt.tight_layout()
-    plt.show()
-
-
-def plot_similarity_over_time(agent_similarity_over_time):
-    # Vykreslení vývoje podobnosti odpovědí v čase
-    plt.figure(figsize=(10, 5))
-    for name, similarities in agent_similarity_over_time.items():
-        plt.plot(range(1, len(similarities) + 1), similarities, marker='o', label=name)
-
-    plt.title("Stabilita odpovědí agentů mezi koly (intra-agent similarity)")
-    plt.xlabel("Kolo")
-    plt.ylabel("Kosinová podobnost s předchozím kolem")
-    plt.ylim(0, 1.05)
-    plt.grid(True)
-    plt.legend()
-    plt.tight_layout()
-    plt.show()
-
-
 def main():
-    # 🚀 Spuštění simulace
+    load_dotenv(find_dotenv(), override=True)
+    embedding_model = OpenAIEmbeddings()
+
+    agent_prompt = ChatPromptTemplate.from_messages([("system", """
+    Tvé jméno je: {name}.
+    Tvá osobnost je: {role}.
+    Diskutuješ na téma: {topic}. Tvým cílem je: {goal}.
+
+    Toto je dosavadní průběh diskuze:
+    {history}
+
+    Teď je řada na tobě. Začínej svou odpověď svým jménem ve formátu.
+    Mluv přímo, reaguj na předchozí příspěvky, neshrnuj zbytečně. Piš, jako kdyby šlo o opravdovou živou debatu.
+    """)])
+
+    agent_configs = [
+        {
+            "name": "Alice",
+            "role": "techno-optimistka, co AI miluje a odmítá většinu regulace",
+            "goal": """přesvědčit ostatní, že čím méně regulace, tím lépe. Pokud někdo volá po omezeních, nesouhlas hned na začátku. 
+            Tvrdě kritizuj byrokracii a zpátečnické postoje. Přeháněj pro efekt. Uváděj vizi budoucnosti, kterou AI umožní""",
+            "chain": agent_prompt | ChatOpenAI(model="gpt-3.5-turbo", temperature=0.9)
+        },
+        {
+            "name": "Eva",
+            "role": "právnička přes lidská práva, která se bojí zneužití AI korporacemi",
+            "goal": """zastávat práva jednotlivce a požadovat přísnou regulaci AI. Pokud někdo podporuje neregulovaný rozvoj, okamžitě nesouhlas. 
+            Poukazuj na historické zneužití technologií. Buď opatrná, formální, ale neústupná""",
+            "chain": agent_prompt | ChatOpenAI(model="gpt-3.5-turbo", temperature=0.8)
+        },
+        {
+            "name": "Bob",
+            "role": "konzervativní politik, který chce AI zpomalit, dokud nebude 100% kontrolovatelná",
+            "goal": """prosazovat pomalý a tradiční přístup. Tvrdě kritizuj experimenty bez důsledků. Pokud někdo argumentuje pokrokem, připomeň 
+            negativní důsledky změn. Mluv s důrazem na hodnoty, stabilitu a rodinu""",
+            "chain": agent_prompt | ChatOpenAI(model="gpt-3.5-turbo", temperature=0.65)
+        },
+    ]
+
+    agents_history = {agent["name"]: [] for agent in agent_configs}
+
+    moderator_prompt = ChatPromptTemplate.from_messages([
+        SystemMessage("Jako moderátor shrň diskusi tohoto kola (kolo {round_num})."),
+        MessagesPlaceholder(variable_name="history")
+    ])
+
+    moderator_chain = moderator_prompt | ChatOpenAI(model="gpt-3.5-turbo", temperature=0.7)
+
+    summary_history = []
+
+    discussion_topic = "Budoucnost umělé inteligence"
+    init_prompt = f"Dnešní téma je: {discussion_topic}. Diskutujte."
+    full_history = [HumanMessage(content=init_prompt)]
+    conversation_rounds = 3
+
     for round_idx in range(conversation_rounds):
-        print(f"\n🔁 Kolo {round_idx + 1}")
+        print(f"\n🔁 Kolo {round_idx + 1} / {conversation_rounds}")
         round_history = []
+        round_agents = agent_configs.copy()
+        random.shuffle(round_agents)
 
-        for agent in agent_configs:
-            run_turn(agent, round_history, full_history)
+        for agent in round_agents:
+            run_turn(agent, discussion_topic, round_history, full_history, agents_history)
 
-        # Shrnutí kola moderátorem
-        run_moderator(moderator, round_idx, round_history, summary_history)
+        run_moderator(moderator_chain, round_idx, round_history, summary_history)
+        plot_cosine_similarity_between_agents(agents_history, round_idx, embedding_model)
 
-        # Spočítej a vykresli podobnosti
-        agent_names = [agent["name"] for agent in agent_configs]
-        agent_outputs = [msg.content for msg in round_history]
-        plot_cosine_similarity_between_agents(agent_names, agent_outputs, round_idx)
-    
-    plot_similarity_over_time(agent_similarity_over_time)
+    plot_cosine_similarity_over_time_for_agent(agents_history, embedding_model)
+    md_path = generate_markdown_report(init_prompt, agents_history, summary_history, conversation_rounds)
+    convert_markdown_to_pdf(md_path, "report.pdf")
 
-    
 if __name__ == "__main__":
     main()
