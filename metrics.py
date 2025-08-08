@@ -23,6 +23,7 @@ def plot_cosine_similarity_between_agents(agents_history, round_idx, embedding_m
     plt.title(f"Kosinová podobnost mezi agenty - Kolo {round_idx + 1}")
     plt.tight_layout()
     plt.savefig(f'Interagentni podobnost kolo {round_idx+1}.png')
+    plt.close()
 
 
 def plot_cosine_similarity_over_time_for_agent(agents_history, embedding_model):
@@ -56,3 +57,4 @@ def plot_cosine_similarity_over_time_for_agent(agents_history, embedding_model):
     plt.legend()
     plt.tight_layout()
     plt.savefig(f'Vyvoj podobnosti nazoru agentu.png')
+    plt.close()
