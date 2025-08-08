@@ -1,9 +1,11 @@
+from langchain.schema import AIMessage
 from sklearn.metrics.pairwise import cosine_similarity
 import matplotlib.pyplot as plt
 import numpy as np
+from collections import defaultdict
 
 
-def plot_cosine_similarity_between_agents(agents_history, round_idx, embedding_model):
+def plot_cosine_similarity_between_agents(history, round_idx, embedding_model):
     """Visualization of cosine similarity between agent responses in embeddings form
     Args:
         agent_names (List[str]): used as tick names on x and y axis of matrix
@@ -11,10 +13,18 @@ def plot_cosine_similarity_between_agents(agents_history, round_idx, embedding_m
         round_idx (int): used in title to identify round of conversation
         embedding_model (OpenAIEmbeddings): model to be used for embeddings calculation of agent_responses
     """
-    agent_names = agents_history.keys()
-    last_round_agent_responses = [agent_responses[-1] for agent_responses in agents_history.values()]
+    last_round_conversation = {
+        agent_name: msg.content
+        for msg in history
+        if (agent_name := msg.response_metadata.get("agent_name")) is not None
+        and msg.response_metadata.get("round") == round_idx
+    }
+    agent_names = last_round_conversation.keys()
+    last_round_agent_responses = last_round_conversation.values()
+    
     embeddings = embedding_model.embed_documents(last_round_agent_responses)
     similarity_matrix = cosine_similarity(embeddings)
+
     plt.figure(figsize=(6, 5))
     plt.imshow(similarity_matrix, cmap='viridis', interpolation='nearest')
     plt.colorbar(label="Kosinová podobnost")
@@ -26,16 +36,29 @@ def plot_cosine_similarity_between_agents(agents_history, round_idx, embedding_m
     plt.close()
 
 
-def plot_cosine_similarity_over_time_for_agent(agents_history, embedding_model):
+def plot_cosine_similarity_over_time_for_agent(history, embedding_model):
     """Visualization of cosine similarity of agent responses evolution over conversation rounds
 
     Args:
         agents_history (Dict[str, List[str]]): dictionary of agent responses in rounds
         embedding_model (OpenAIEmbeddings): model to be used for embeddings calculation of agent_responses
     """
-    
+
     # 1.0 for init cosine similarity (first embedding doesnt have comparable partner)
-    agent_similarity_over_time = {agent_name: [1.0] for agent_name in agents_history.keys()}
+    agent_similarity_over_time = {
+        agent_name: [1.0] 
+        for msg in history
+        if (agent_name := msg.response_metadata.get("agent_name")) is not None
+        and msg.response_metadata.get("round") == 0
+    }
+
+    agents_history = defaultdict(list)
+    for msg in history:
+        if not isinstance(msg, AIMessage):
+            continue
+        agent_name = msg.response_metadata.get("agent_name")
+        if agent_name:
+            agents_history[agent_name].append(msg.content)
     
     for agent_name, agent_responses in agents_history.items():
         agent_embeddings = embedding_model.embed_documents(agent_responses)
