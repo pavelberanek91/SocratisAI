@@ -1,4 +1,5 @@
 # streamlit_app.py
+import os
 import io, zipfile
 from pathlib import Path
 from typing import List
@@ -27,6 +28,54 @@ from reports import generate_markdown_report, convert_markdown_to_pdf
 # -----------------------------
 # Pomocné funkce
 # -----------------------------
+
+def render_exports(exports: dict, title="📄 Export"):
+    st.subheader(title)
+    if exports.get("md"):
+        st.download_button(
+            label="⬇️ Stáhnout Markdown report",
+            data=exports["md"]["data"],
+            file_name=exports["md"]["name"],
+            mime="text/markdown",
+            key="dl_md",
+        )
+    if exports.get("pdf"):
+        st.download_button(
+            label="⬇️ Stáhnout PDF report",
+            data=exports["pdf"]["data"],
+            file_name=exports["pdf"]["name"],
+            mime="application/pdf",
+            key="dl_pdf",
+        )
+    if exports.get("images"):
+        st.markdown("**📊 Obrázky:**")
+        for idx, img in enumerate(exports["images"]):
+            st.download_button(
+                label=f"Stáhnout {img['name']}",
+                data=img["data"],
+                file_name=img["name"],
+                mime="image/png",
+                key=f"dl_img_{idx}",
+            )
+
+    # ZIP všeho
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        if exports.get("md"):
+            zf.writestr(exports["md"]["name"], exports["md"]["data"])
+        if exports.get("pdf"):
+            zf.writestr(exports["pdf"]["name"], exports["pdf"]["data"])
+        for img in exports.get("images", []):
+            zf.writestr(img["name"], img["data"])
+    buf.seek(0)
+    st.download_button(
+        label="⬇️ Stáhnout vše (ZIP)",
+        data=buf.getvalue(),
+        file_name="socratisai_export.zip",
+        mime="application/zip",
+        key="dl_zip_all",
+    )
+
 def ensure_parent(path: str | Path):
     Path(path).parent.mkdir(parents=True, exist_ok=True)
 
@@ -109,11 +158,38 @@ st.set_page_config(page_title="SocratisAI – Multi-Agent Simulation", layout="w
 st.title("SocratisAI – Multi-Agent Simulation")
 st.caption("Streamlit UI: nastavení simulace, konfigurace/šablony (upload nebo inline), běh, grafy a export.")
 
+# Inicializace session state
+if "exports" not in st.session_state:
+    st.session_state["exports"] = None
+
 with st.sidebar:
     st.header("⚙️ Nastavení")
-    if st.button("Načíst .env", use_container_width=True):
-        load_dotenv(find_dotenv(), override=True)
-        st.success("Načteno z .env")
+    st.subheader("🔐 OpenAI API klíč")
+
+    # password-type input; neukládá se na disk
+    openai_key_input = st.text_input("Zadej OpenAI API key", type="password", placeholder="sk-…")
+
+    c_set, c_forget = st.columns(2)
+    with c_set:
+        if st.button("Použít klíč (session)"):
+            if openai_key_input:
+                st.session_state["openai_key"] = openai_key_input.strip()
+                os.environ["OPENAI_API_KEY"] = st.session_state["openai_key"]  # priorita proti .env
+                st.success("Klíč nastaven pro tuto session.")
+            else:
+                st.warning("Zadej klíč, prosím.")
+
+    with c_forget:
+        if st.button("Zapomenout klíč"):
+            st.session_state.pop("openai_key", None)
+            os.environ.pop("OPENAI_API_KEY", None)
+            st.info("Klíč byl odstraněn ze session.")
+
+    # Stavová hláška
+    if "openai_key" in st.session_state:
+        st.caption("✅ Klíč je aktivní (jen v této session).")
+    else:
+        st.caption("ℹ️ Můžeš načíst z .env nebo zadat klíč ručně.")
 
     discussion_topic = st.text_input("Téma diskuze", value="Budoucnost umělé inteligence")
     conversation_rounds = st.slider("Počet kol", min_value=1, max_value=50, value=10, step=1)
@@ -269,6 +345,10 @@ Output a neutral, concise summary (bullets welcome).
 if run_btn:
     load_dotenv(find_dotenv(), override=True)
 
+    # Před inicializací klientů – session key má přednost
+    if "openai_key" in st.session_state:
+        os.environ["OPENAI_API_KEY"] = st.session_state["openai_key"]
+
     # Embeddings (s volbou modelu)
     embedding_model = OpenAIEmbeddings(model=embedding_model_name)
 
@@ -320,57 +400,55 @@ if run_btn:
         if evol_path.exists():
             st.image(str(evol_path), caption="Vývoj stability odpovědí agentů", use_container_width=True)
 
-    # Reporty
-    st.subheader("📄 Export")
+
+    # ====== ULOŽENÍ VÝSTUPŮ DO SESSION ======
+    exports = {"md": None, "pdf": None, "images": []}
+
     try:
         md_path = generate_markdown_report(init_prompt, history, summary_history) if (do_pdf or do_md) else None
 
         if do_md and md_path:
-            st.download_button(
-                label="⬇️ Stáhnout Markdown report",
-                data=read_file_bytes(md_path),
-                file_name=Path(md_path).name,
-                mime="text/markdown"
-            )
+            exports["md"] = {
+                "name": Path(md_path).name,
+                "data": read_file_bytes(md_path),
+            }
 
         if do_pdf and md_path:
             pdf_out = "report.pdf"
             convert_markdown_to_pdf(md_path, pdf_out)
             if Path(pdf_out).exists():
-                st.download_button(
-                    label="⬇️ Stáhnout PDF report",
-                    data=read_file_bytes(pdf_out),
-                    file_name=pdf_out,
-                    mime="application/pdf"
-                )
+                exports["pdf"] = {
+                    "name": pdf_out,
+                    "data": read_file_bytes(pdf_out),
+                }
             else:
                 st.warning("PDF se nepodařilo vytvořit (zkontroluj pandoc/latex).")
+
     except Exception as e:
         st.error(f"Chyba při generování reportu: {e}")
 
-    # PNG ke stažení
+    # Obrázky (pokud jsou)
     if do_graphs:
-        st.markdown("**📊 Obrázky ke stažení:**")
         imgs = sorted(Path(".").glob("Interagentni podobnost kolo *.png"))
         for p in imgs:
-            st.download_button(
-                label=f"Stáhnout {p.name}",
-                data=read_file_bytes(p),
-                file_name=p.name,
-                mime="image/png",
-                key=f"dl_{p.name}"
-            )
+            exports["images"].append({"name": p.name, "data": read_file_bytes(p)})
         evol_path = Path("Vyvoj podobnosti nazoru agentu.png")
         if evol_path.exists():
-            st.download_button(
-                label=f"Stáhnout {evol_path.name}",
-                data=read_file_bytes(evol_path),
-                file_name=evol_path.name,
-                mime="image/png",
-                key="dl_evol_png"
-            )
+            exports["images"].append({"name": evol_path.name, "data": read_file_bytes(evol_path)})
+
+    # Ulož do session a zobraz downloady
+    st.session_state["exports"] = exports
+
+    render_exports(st.session_state["exports"], title="📄 Export (aktuální běh)")
+    progress.progress(1.0, text="Hotovo ✅")
+
+    # Volitelně: tlačítko pro smazání výsledků
+    st.button("🧹 Smazat poslední výsledky", on_click=lambda: st.session_state.update({"exports": None}))
 
     progress.progress(1.0, text="Hotovo ✅")
 
+elif st.session_state.get("exports"):
+    render_exports(st.session_state["exports"], title="📄 Export (poslední běh)")
+    st.button("🧹 Smazat poslední výsledky", on_click=lambda: st.session_state.update({"exports": None}))
 else:
     st.info("Nastav parametry vlevo a klikni na **Spustit simulaci**.")
