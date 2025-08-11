@@ -5,8 +5,8 @@ import re
 
 def sanitize_text(text):
     """Odstranění znaků, které mohou rozbít LaTeX při převodu na PDF."""
-    text = re.sub(r'[\\{}]', '', text)
-    text = text.replace('_', '\\_')  # podtržítka escapujeme
+    #text = re.sub(r'[\\{}]', '', text)
+    #text = text.replace('_', '\\_')  # podtržítka escapujeme
     
     # Odstranění emojis (přes Unicode rozsahy)
     emoji_pattern = re.compile(

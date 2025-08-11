@@ -1,5 +1,6 @@
 from langchain_openai import ChatOpenAI
 from langchain.prompts import ChatPromptTemplate
+from langchain.schema import AIMessage
 from langchain_core.runnables import Runnable
 from typing import TypedDict
 from pathlib import Path
@@ -16,7 +17,7 @@ class AgentDict(TypedDict):
     name: str
     role: str
     goal: str
-    chain: Runnable[dict, str]
+    chain: Runnable[dict, AIMessage]
 
 
 def load_prompt(path: str) -> ChatPromptTemplate:
@@ -64,7 +65,7 @@ def validate_config(config: dict, required_keys: set, label: str) -> None:
         raise ValueError(f"{label} missing keys: {missing}")
     
 
-def build_chain(prompt_path: str, model: str, temperature: float) -> Runnable[dict, str]:
+def build_chain(prompt_path: str, model: str, temperature: float) -> Runnable[dict, AIMessage]:
     """
     Builds a LangChain runnable by combining a prompt template and a language model.
 
@@ -104,7 +105,7 @@ def create_agents() -> list[AgentDict]:
     return agents
 
 
-def create_moderator() -> Runnable[dict, str]:
+def create_moderator() -> Runnable[dict, AIMessage]:
     """
     Creates a moderator agent that summarizes the discussion between agents in a given round.
 
