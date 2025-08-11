@@ -10,7 +10,6 @@ from dotenv import load_dotenv, find_dotenv
 def run_turn(round_idx, agent, discussion_topic, history, summary_history):
     
     # because limited context lenght of models agents only remember last N rounds and summary from moderator
-    #recent_rounds = history[-(5 * len(agents_history)):]
     recent_rounds = history[-(10 * len(history)):]
     short_history = [summary_history] + recent_rounds
 
@@ -26,7 +25,6 @@ def run_turn(round_idx, agent, discussion_topic, history, summary_history):
         response_metadata={"agent_name": agent["name"],"round": round_idx}
     )
     history.append(message)
-    #agents_history[agent["name"]].append(response.content)
 
 
 # ✍️ Funkce pro shrnutí kola moderátorem
@@ -47,8 +45,6 @@ def main():
     agents = create_agents()
     moderator = create_moderator()
 
-    #agents_history = {agent["name"]: [] for agent in agents} #TODO: ted se potrebuji zbavit tohohle
-
     #tady to pak opravit, pri vypisu jsou posunute indexy, protoze tohle je pak sumarizace prvniho kola
     summary_history = [HumanMessage(content="Zatím neproběhla žádná předchozí diskuze. Jedná se o první konverzační kolo.")]
 
@@ -67,8 +63,8 @@ def main():
         plot_cosine_similarity_between_agents(history, round_idx, embedding_model)
     
     plot_cosine_similarity_over_time_for_agent(history, embedding_model)
-    #md_path = generate_markdown_report(init_prompt, agents_history, summary_history, conversation_rounds)
-    #convert_markdown_to_pdf(md_path, "report.pdf")
+    md_path = generate_markdown_report(init_prompt, history, summary_history)
+    convert_markdown_to_pdf(md_path, "report.pdf")
 
 if __name__ == "__main__":
     main()

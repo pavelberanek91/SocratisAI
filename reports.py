@@ -1,3 +1,4 @@
+from langchain.schema import AIMessage
 import pypandoc
 from pathlib import Path
 import re
@@ -40,28 +41,37 @@ def sanitize_text(text):
     return text.strip()
 
 
-def generate_markdown_report(init_prompt, agents_history, summary_history, total_rounds):
+def generate_markdown_report(init_prompt, history, summary_history):
     def insert_image_nofloat(path: str) -> str:
         return f"\\noindent\\includegraphics[width=\\textwidth]{{{path}}}"
 
     report_lines = ["# SocratisAI report\n"]
     report_lines.append(sanitize_text(init_prompt))
 
-    for round_idx in range(total_rounds):
+    # Pro výpočet celkového počtu kol se používá generatátorový objekt, který je pamětově efektivní
+    total_rounds = max(
+        (int(r) for r in (msg.response_metadata.get("round") for msg in history) if r is not None),
+        default=0
+    )
+
+    for round_idx in range(total_rounds + 1):
         report_lines.append(f"\n---\n\n## Kolo {round_idx + 1}\n")
 
-        # Výstupy jednotlivých agentů
+        # Výstupy jednotlivých agentů v daném kole
+        messages_in_current_round = [
+            msg.content 
+            for msg in history
+            if isinstance(msg, AIMessage) and msg.response_metadata.get("round") == round_idx
+        ]    
         report_lines.append("### Příspěvky agentů:\n")
-        for agent, messages in agents_history.items():
-            if round_idx < len(messages):
-                content = sanitize_text(messages[round_idx])
-                report_lines.append(f"{content}")
+        for msg in messages_in_current_round:
+            content = sanitize_text(msg)
+            report_lines.append(f"{content}")
 
         # Shrnutí moderátorem
         report_lines.append("\n### Shrnutí moderátorem:\n")
-        if round_idx < len(summary_history):
-            summary = sanitize_text(summary_history[round_idx].content)
-            report_lines.append(summary)
+        current_round_summary = sanitize_text(summary_history[round_idx+1].content)
+        report_lines.append(current_round_summary)
 
         # Obrázek: podobnost mezi agenty
         img_path = f"Interagentni podobnost kolo {round_idx+1}.png"
