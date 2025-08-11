@@ -1,3 +1,9 @@
+# Results of simulation
+*.png
+report.md
+report.pdf
+*.zip
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
